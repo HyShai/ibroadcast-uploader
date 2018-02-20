@@ -42,6 +42,9 @@ let toLower (s : string) = s.ToLower()
 let getDirectory dir = 
     (new DirectoryInfo(dir)).EnumerateFiles("*.*", SearchOption.AllDirectories)
 
+let pFilter p (s : seq<'T>) = 
+    ParallelEnumerable.Where(s.AsParallel(), Func<_,_>(p))
+
 //end wrappers
 
 type ibroadcast = {UserId:string; Token:string; Checksums:seq<string>; Supported:seq<string>}
@@ -88,7 +91,7 @@ let uploadFiles (files : seq<FileInfo>) userId token (checksums:seq<string>) =
             dc.Content <- sprintf "%s\n (%d of %d)" file.FullName count total
             Util.Progress <- System.Nullable (int ((count ./. total)*100.0))
             not (contains md checksums)
-    let missing = files |> Seq.filter isMissing
+    let missing = files |> pFilter isMissing
             
     [for file in missing -> 
         dc.Content <- (sprintf "uploading: %s" file.FullName)
