@@ -1,3 +1,19 @@
+<Query Kind="FSharpProgram">
+  <Reference>&lt;RuntimeDirectory&gt;\System.Net.dll</Reference>
+  <Reference>&lt;RuntimeDirectory&gt;\System.Net.Http.dll</Reference>
+  <NuGetReference Version="1.0.1">FSharp.Collections.ParallelSeq</NuGetReference>
+  <NuGetReference>FSharp.Core</NuGetReference>
+  <NuGetReference>FSharp.Data</NuGetReference>
+  <NuGetReference>Newtonsoft.Json</NuGetReference>
+  <Namespace>FSharp.Data</Namespace>
+  <Namespace>FSharp.Data.Runtime</Namespace>
+  <Namespace>FSharp.Data.Runtime.BaseTypes</Namespace>
+  <Namespace>FSharp.Data.Runtime.StructuralTypes</Namespace>
+  <Namespace>FSharp.Data.Runtime.WorldBank</Namespace>
+  <Namespace>Newtonsoft.Json</Namespace>
+  <Namespace>Newtonsoft.Json.Converters</Namespace>
+</Query>
+
 open System
 open System.IO
 open System.Net.Http
@@ -11,7 +27,7 @@ let musicDir = @"E:\Music"
 let email = "email@domain.com"
 let password = "passwd"
 
-/// http://www.fssnip.net/fy/title/Typeinference-friendly-division-and-multiplication
+///http://www.fssnip.net/fy/title/Typeinference-friendly-division-and-multiplication
 /// Floating point division given int and int args.
 let (./.) x y = 
     (x |> double) / (y |> double)
@@ -59,18 +75,20 @@ let uploadFile (url: string) userId token (file: FileInfo) = async {
     return content
 }
 
+
 let uploadFiles (files : seq<FileInfo>) userId token (checksums:seq<string>) =
     let dc = new DumpContainer()
     dc.Dump()
     let contains md checksums = Seq.exists (fun elem -> elem = md) checksums
     let mutable count = 0
     let total = Seq.length files
-    let missing = files |> Seq.filter (fun file -> 
+    let isMissing file = 
             let md = getMD5HashFromFile file
             count <- count + 1
             dc.Content <- sprintf "%s\n (%d of %d)" file.FullName count total
             Util.Progress <- System.Nullable (int ((count ./. total)*100.0))
-            not (contains md checksums))
+            not (contains md checksums)
+    let missing = files |> Seq.filter isMissing
             
     [for file in missing -> 
         dc.Content <- (sprintf "uploading: %s" file.FullName)
