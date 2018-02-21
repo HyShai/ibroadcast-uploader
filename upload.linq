@@ -1,7 +1,6 @@
 <Query Kind="FSharpProgram">
   <Reference>&lt;RuntimeDirectory&gt;\System.Net.dll</Reference>
   <Reference>&lt;RuntimeDirectory&gt;\System.Net.Http.dll</Reference>
-  <NuGetReference Version="1.0.1">FSharp.Collections.ParallelSeq</NuGetReference>
   <NuGetReference>FSharp.Core</NuGetReference>
   <NuGetReference>FSharp.Data</NuGetReference>
   <NuGetReference>Newtonsoft.Json</NuGetReference>
@@ -20,7 +19,6 @@ open System.Net.Http
 open System.Security.Cryptography
 open FSharp.Data
 open FSharp.Data.JsonExtensions
-open FSharp.Collections.ParallelSeq
 open Newtonsoft.Json.Converters
 
 let musicDir = @"E:\Music"
