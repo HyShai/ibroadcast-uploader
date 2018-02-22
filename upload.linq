@@ -20,6 +20,8 @@ open System.Security.Cryptography
 open FSharp.Data
 open FSharp.Data.JsonExtensions
 open Newtonsoft.Json.Converters
+open System.Threading
+open System.Linq
 
 let musicDir = @"E:\Music"
 let email = "email@domain.com"
@@ -37,12 +39,48 @@ let replace oldStr newStr (s : string) =
 
 let toLower (s : string) = s.ToLower() 
 
-let getDirectory dir = 
-    (new DirectoryInfo(dir)).EnumerateFiles("*.*", SearchOption.AllDirectories)
+let getDirectory dir lastModified = 
+    (new DirectoryInfo(dir)).EnumerateFiles("*.*", SearchOption.AllDirectories) 
+    //|> Seq.filter (fun d -> d.LastWriteTime > lastModified)
 
+let pFilter p (s : seq<'T>) =
+    ParallelEnumerable.Where(s.AsParallel(), Func<_,_>(p))
+    
 //end wrappers
 
-type ibroadcast = {UserId:string; Token:string; Checksums:seq<string>; Supported:seq<string>}
+//LinqPad Dump Stuff
+
+let dc = new DumpContainer()
+dc.Dump()
+let mutable count = 0
+let mutable total = 0
+let dump s = 
+    dc.Content <- s
+    Util.Progress <- System.Nullable (int ((count ./. total)*100.0))
+    
+//end LinqPad Dump Stuff
+
+//types
+
+type Body = {
+    mode: string
+    email_address: string
+    password: string
+    version: int
+    client: string
+    supported_types: int
+    device_name: string
+} 
+
+type ibroadcast = {
+    UserId:string; 
+    Token:string; 
+    Checksums:seq<string>; 
+    Supported:seq<string>
+}
+
+//end types
+let clientName = "f# uploader script"
 
 let getMD5HashFromFile (file : FileInfo) =
     use fileStream = new FileStream(file.FullName, FileMode.Open, FileAccess.Read, FileShare.Read, 16 * 1024 * 1024)
@@ -52,8 +90,8 @@ let getMD5HashFromFile (file : FileInfo) =
         |> replace "-" ""
         |> toLower
 
-let loadMediaFiles dir ( extensions: seq<string> ) =
-    getDirectory dir
+let loadMediaFiles dir ( extensions: seq<string> ) lastModified =
+    getDirectory dir lastModified
     |> Seq.filter (fun e -> extensions.Contains(e.Extension.ToLower()))
 
 let uploadFile (url: string) userId token (file: FileInfo) = async {
@@ -64,7 +102,7 @@ let uploadFile (url: string) userId token (file: FileInfo) = async {
     content.Add(new StringContent(userId), @"""user_id""")
     content.Add(new StringContent(token), @"""token""")
     content.Add(new StringContent(file.FullName), @"""file_path""")
-    content.Add(new StringContent("f# uploader script"), @"""method""")
+    content.Add(new StringContent(clientName), @"""method""")
     content.Add(new StreamContent(filestream), @"""file""", sprintf @"""%s""" file.FullName)
 
     let result = client.PostAsync(url, content)
@@ -75,60 +113,56 @@ let uploadFile (url: string) userId token (file: FileInfo) = async {
 
 
 let uploadFiles (files : seq<FileInfo>) userId token (checksums:seq<string>) =
-    let dc = new DumpContainer()
-    dc.Dump()
     let contains md checksums = Seq.exists (fun elem -> elem = md) checksums
-    let mutable count = 0
-    let total = Seq.length files
+    count <- 0
+    total <- Seq.length files
     let isMissing file = 
             let md = getMD5HashFromFile file
             count <- count + 1
-            dc.Content <- sprintf "%s\n (%d of %d)" file.FullName count total
-            Util.Progress <- System.Nullable (int ((count ./. total)*100.0))
+            dump (sprintf "%s\n (%d of %d)" file.FullName count total)
             not (contains md checksums)
-    let missing = files |> Seq.filter isMissing
-            
+    let missing = files |> pFilter isMissing |> List.ofSeq
+    count <- 0
+    total <- missing.Length
     [for file in missing -> 
-        dc.Content <- (sprintf "uploading: %s" file.FullName)
+        count <- count + 1
+        dump (sprintf "uploading: %s\n (%d of %d)" file.FullName count total)
         let result = uploadFile "https://sync.ibroadcast.com" userId token file |> Async.RunSynchronously
         printfn "%A %s: %A" DateTime.Now file.FullName result
         ]
     //|> Async.Parallel    
-
-type Body = {
-    mode: string
-    email_address: string
-    password: string
-    version: int
-    client: string
-    supported_types: int
-}  
-
+ 
 let body = {
     mode = "status";
     email_address = email;
     password = password;
     version = 1;
-    client = "f# uploader script";
-    supported_types = 1
+    client = clientName;
+    supported_types = 1;
+    device_name = "LINQPad";    
 }
 
 let login = async {
+    dump "Logging in..."
     let! value = Http.AsyncRequestString("https://json.ibroadcast.com/s/JSON/", headers = [ HttpRequestHeaders.ContentType HttpContentTypes.Json ], body = TextRequest (JsonConvert.SerializeObject body))
     let json = JsonValue.Parse(value)
     let supported = json?supported.AsArray() |> Seq.map (fun e -> e?extension.AsString())    
     let token = json?user?token.AsString()    
-    let userId = json?user?id.AsString()    
-    return (supported, token, userId)
+    let userId = json?user?id.AsString()
+    //.AsDateTime() parses as DateTimeKind.Local
+    //we need DateTimeKind.UTC
+    let lastModified = DateTime.Parse(json?status?lastmodified.AsString()).ToLocalTime()
+    return (supported, token, userId, lastModified)
 } 
 
 let getMD5List userId token = async {
+    dump "Getting uploaded tracks..."
     let! value = Http.AsyncRequestString("https://sync.ibroadcast.com", body = FormValues ["user_id", userId;"token", token])
     return JsonValue.Parse(value)?md5.AsArray()
         |> Seq.map (fun elem -> elem.AsString())
 }
 
-let (supported, token, userId) = login |> Async.RunSynchronously
+let (supported, token, userId, lastModified) = login |> Async.RunSynchronously
 let checksums = getMD5List userId token |> Async.RunSynchronously
 
-uploadFiles (loadMediaFiles musicDir supported) userId token checksums |> ignore
+uploadFiles (loadMediaFiles musicDir supported lastModified) userId token checksums |> ignore
