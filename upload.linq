@@ -132,3 +132,4 @@ let (supported, token, userId) = login |> Async.RunSynchronously
 let checksums = getMD5List userId token |> Async.RunSynchronously
 
 uploadFiles (loadMediaFiles musicDir supported) userId token checksums |> ignore
+// vim: syntax=fsharp
